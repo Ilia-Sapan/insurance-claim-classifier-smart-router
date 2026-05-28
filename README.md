@@ -4,8 +4,9 @@ German-language NLP application for insurance input management in an insurance c
 
 ## Features
 
-- German zero-shot classification for: Schadensmeldung, Beschwerde, Vertragsaenderung, Kuendigung
-- German sentiment analysis with `oliverguhr/german-sentiment-bert`
+- German claim letter classification for: Schadensmeldung, Beschwerde, Vertragsaenderung, Kuendigung
+- Stable portfolio demo mode that runs without loading large transformer models
+- Optional Hugging Face model mode for German sentiment and zero-shot classification
 - Smart priority scoring, SLA assignment and department routing
 - Formal German response draft in Sie-Form
 - Streamlit UI with a letter simulator and business metrics dashboard
@@ -23,6 +24,8 @@ German-language NLP application for insurance input management in an insurance c
 
 ## Models
 
+The app starts in a lightweight portfolio mode for reliability on local laptops and free cloud tiers. Transformer models can be enabled from the UI toggle or with the environment variable `AKTIVIERE_HF_MODELLE=true`.
+
 - Sentiment: `oliverguhr/german-sentiment-bert`
 - Zero-shot classification: `Sahajpreet/german-zero-shot`
 - Zero-shot fallback: `Sahajtomar/German_Zeroshot`
@@ -35,9 +38,20 @@ py -3.12 -m pip install -r requirements.txt
 py -3.12 -m streamlit run app.py
 ```
 
-Open `http://localhost:8501`.
+Open `http://localhost:8501` or `http://127.0.0.1:8501`.
 
-The first analysis can take longer because Hugging Face models are downloaded lazily on first use.
+Keep `Hugging-Face-Modelle verwenden` switched off for a stable public demo. Enable it only on a machine with enough RAM.
+
+## Public Demo Deployment
+
+This repository is ready for Streamlit Community Cloud:
+
+1. Open `https://share.streamlit.io`.
+2. Connect the GitHub repository `Ilia-Sapan/insurance-claim-classifier-smart-router`.
+3. Set the main file path to `app.py`.
+4. Deploy the app.
+
+After deployment, Streamlit gives a public URL that can be added to a CV, LinkedIn profile or GitHub README.
 
 ## Docker
 
