@@ -1,0 +1,7 @@
+streamlit>=1.36,<2
+transformers>=4.44,<5
+torch>=2.3,<3
+plotly>=5.22,<7
+pandas>=2.2,<3
+numpy>=1.26,<3
+huggingface-hub>=0.23,<1
