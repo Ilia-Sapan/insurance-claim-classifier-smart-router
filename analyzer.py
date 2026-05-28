@@ -9,11 +9,18 @@ from dataclasses import asdict, dataclass
 from functools import lru_cache
 from typing import Any
 
-import torch
-from transformers import pipeline
-
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Liest boolesche Umgebungsvariablen robust ein."""
+
+    wert = os.getenv(name)
+    if wert is None:
+        return default
+    return wert.strip().lower() in {"1", "true", "yes", "ja", "on"}
+
 
 SENTIMENT_MODELL = os.getenv("SENTIMENT_MODELL", "oliverguhr/german-sentiment-bert")
 ZERO_SHOT_MODELL = os.getenv("ZERO_SHOT_MODELL", "Sahajpreet/german-zero-shot")
@@ -21,6 +28,7 @@ ZERO_SHOT_FALLBACK_MODELL = os.getenv(
     "ZERO_SHOT_FALLBACK_MODELL", "Sahajtomar/German_Zeroshot"
 )
 GENERIERUNGS_MODELL = os.getenv("GENERIERUNGS_MODELL", "dbmdz/german-gpt2")
+AKTIVIERE_HF_MODELLE_STANDARD = _env_flag("AKTIVIERE_HF_MODELLE", False)
 
 KATEGORIEN = ["Schadensmeldung", "Beschwerde", "Vertragsänderung", "Kündigung"]
 HYPOTHESE_TEMPLATE = "In diesem Schreiben geht es um {}."
@@ -68,7 +76,9 @@ SCHLUESSELWOERTER = {
         "beschwerde",
         "unzufrieden",
         "enttäuscht",
+        "enttaeuscht",
         "verärgert",
+        "veraergert",
         "keine antwort",
         "schlechter service",
         "warte",
@@ -81,7 +91,9 @@ SCHLUESSELWOERTER = {
     ],
     "Vertragsänderung": [
         "vertrag ändern",
+        "vertrag aendern",
         "vertragsänderung",
+        "vertragsaenderung",
         "adresse",
         "bankverbindung",
         "iban",
@@ -96,15 +108,20 @@ SCHLUESSELWOERTER = {
     ],
     "Kündigung": [
         "kündigung",
+        "kuendigung",
         "kündigen",
+        "kuendigen",
         "beenden",
         "vertragsende",
         "widerruf",
         "sonderkündigung",
+        "sonderkuendigung",
         "ablauf",
         "wechseln",
         "nicht verlängern",
+        "nicht verlaengern",
         "bestätigung der kündigung",
+        "bestaetigung der kuendigung",
     ],
 }
 
@@ -116,7 +133,9 @@ DRINGLICHKEITS_TERME = [
     "morgen",
     "frist",
     "frist läuft",
+    "frist laeuft",
     "unverzüglich",
+    "unverzueglich",
     "mahnbescheid",
     "klage",
     "gericht",
@@ -132,6 +151,7 @@ SCHADENSSCHWERE_TERME = [
     "einbruch",
     "diebstahl",
     "wohngebäude unbewohnbar",
+    "wohngebaeude unbewohnbar",
     "existenz",
     "hoher betrag",
     "totalschaden",
@@ -141,11 +161,15 @@ NEGATIVE_TERME = [
     "beschwerde",
     "unzufrieden",
     "enttäuscht",
+    "enttaeuscht",
     "wütend",
+    "wuetend",
     "verärgert",
+    "veraergert",
     "inakzeptabel",
     "problem",
     "ärger",
+    "aerger",
     "keine reaktion",
     "nicht zufrieden",
     "schlecht",
@@ -180,7 +204,20 @@ SLA = {
 def _geraet() -> int:
     """Ermittelt das Zielgerät für Hugging-Face-Pipelines."""
 
-    return 0 if torch.cuda.is_available() else -1
+    try:
+        import torch
+
+        return 0 if torch.cuda.is_available() else -1
+    except Exception:
+        return -1
+
+
+def _lade_pipeline() -> Any:
+    """Importiert Transformers erst dann, wenn echte Modelle angefordert werden."""
+
+    from transformers import pipeline
+
+    return pipeline
 
 
 @lru_cache(maxsize=1)
@@ -188,6 +225,7 @@ def _sentiment_pipeline() -> Any | None:
     """Lädt das deutsche Sentiment-Modell genau einmal pro Prozess."""
 
     try:
+        pipeline = _lade_pipeline()
         return pipeline(
             "text-classification",
             model=SENTIMENT_MODELL,
@@ -207,6 +245,7 @@ def _zero_shot_pipeline() -> tuple[Any | None, str, str | None]:
     kandidaten = [ZERO_SHOT_MODELL, ZERO_SHOT_FALLBACK_MODELL]
     for modell_name in dict.fromkeys(kandidaten):
         try:
+            pipeline = _lade_pipeline()
             klassifikator = pipeline(
                 "zero-shot-classification",
                 model=modell_name,
@@ -225,6 +264,7 @@ def _zero_shot_pipeline() -> tuple[Any | None, str, str | None]:
 def _generierungs_pipeline() -> Any:
     """Lädt ein leichtes deutsches GPT-2-Modell für optionale Textverfeinerung."""
 
+    pipeline = _lade_pipeline()
     generator = pipeline(
         "text-generation",
         model=GENERIERUNGS_MODELL,
@@ -265,8 +305,18 @@ def _regelbasierte_klassifikation(text: str) -> tuple[str, float, dict[str, floa
     return kategorie, scores[kategorie], scores, "Regelbasierte Klassifikation aktiv."
 
 
-def _klassifiziere(text: str) -> tuple[str, float, dict[str, float], list[str]]:
+def _klassifiziere(
+    text: str, nutze_hf_modelle: bool
+) -> tuple[str, float, dict[str, float], list[str]]:
     hinweise: list[str] = []
+
+    if not nutze_hf_modelle:
+        kategorie, score, scores, hinweis = _regelbasierte_klassifikation(text)
+        hinweise.append(
+            f"{hinweis} Portfolio-Modus: Hugging-Face-Modelle sind deaktiviert."
+        )
+        return kategorie, score, scores, hinweise
+
     klassifikator, modell_name, fehler = _zero_shot_pipeline()
 
     if klassifikator is None:
@@ -324,8 +374,18 @@ def _regelbasierte_stimmung(text: str) -> tuple[str, float, str]:
     return "Neutral", 0.56, "Regelbasiertes Sentiment aktiv."
 
 
-def _analysiere_stimmung(text: str) -> tuple[str, float, list[str]]:
+def _analysiere_stimmung(
+    text: str, nutze_hf_modelle: bool
+) -> tuple[str, float, list[str]]:
     hinweise: list[str] = []
+
+    if not nutze_hf_modelle:
+        label, score, hinweis = _regelbasierte_stimmung(text)
+        hinweise.append(
+            f"{hinweis} Portfolio-Modus: Hugging-Face-Modelle sind deaktiviert."
+        )
+        return label, round(score, 4), hinweise
+
     try:
         sentiment = _sentiment_pipeline()
         ergebnis = sentiment(_kuerzen(text, 1200), truncation=True)
@@ -549,17 +609,26 @@ def generiere_antwort(
         return standardantwort, hinweise
 
 
-def analysiere_schreiben(text: str, nutze_sprachmodell: bool = False) -> dict[str, Any]:
+def analysiere_schreiben(
+    text: str,
+    nutze_sprachmodell: bool = False,
+    nutze_hf_modelle: bool | None = None,
+) -> dict[str, Any]:
     """Analysiert ein deutsches Eingangsschreiben Ende-zu-Ende."""
 
     bereinigter_text = text.strip()
     if not bereinigter_text:
         raise ValueError("Bitte geben Sie ein Eingangsschreiben ein.")
 
+    if nutze_hf_modelle is None:
+        nutze_hf_modelle = AKTIVIERE_HF_MODELLE_STANDARD
+
     kategorie, klassifikation_score, kategorien_scores, klassifikation_hinweise = _klassifiziere(
-        bereinigter_text
+        bereinigter_text, nutze_hf_modelle=nutze_hf_modelle
     )
-    stimmung, stimmung_score, stimmung_hinweise = _analysiere_stimmung(bereinigter_text)
+    stimmung, stimmung_score, stimmung_hinweise = _analysiere_stimmung(
+        bereinigter_text, nutze_hf_modelle=nutze_hf_modelle
+    )
     prioritaet, prioritaet_score, route, sla, gruende = _berechne_prioritaet(
         bereinigter_text, kategorie, stimmung
     )

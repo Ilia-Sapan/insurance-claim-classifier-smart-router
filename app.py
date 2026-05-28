@@ -233,9 +233,15 @@ def _brief_simulator() -> None:
             key="beispiel_name",
             on_change=_lade_beispiel,
         )
+        nutze_hf_modelle = st.toggle(
+            "Hugging-Face-Modelle verwenden",
+            value=False,
+            help="Lädt BERT/NLI-Modelle und benötigt deutlich mehr RAM. Für öffentliche Demos bleibt diese Option aus.",
+        )
         nutze_sprachmodell = st.toggle(
             "German-GPT2 für Antwortentwurf",
             value=False,
+            help="Optionaler Textgenerator. Auf schwachen Rechnern ausgeschaltet lassen.",
         )
         analysieren = st.button("Analyse starten", type="primary", use_container_width=True)
 
@@ -248,10 +254,11 @@ def _brief_simulator() -> None:
 
     if analysieren:
         try:
-            with st.spinner("Modelle analysieren das Schreiben..."):
+            with st.spinner("Analyse läuft..."):
                 st.session_state.analyse = analysiere_schreiben(
                     st.session_state.eingangstext,
                     nutze_sprachmodell=nutze_sprachmodell,
+                    nutze_hf_modelle=nutze_hf_modelle,
                 )
         except Exception as exc:
             st.error(f"Analyse fehlgeschlagen: {exc}")
